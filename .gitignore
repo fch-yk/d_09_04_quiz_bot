@@ -19,6 +19,7 @@ requirements.txt~
 .gitignore~
 .swo
 .swp
+questions/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
