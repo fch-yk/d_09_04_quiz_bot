@@ -1,4 +1,5 @@
 # specific files and folders
+create_venv
 tmp/
 images/
 .vscode/
