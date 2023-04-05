@@ -2,14 +2,19 @@ import json
 import os
 
 from environs import Env
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (CallbackContext, CommandHandler, Filters,
                           MessageHandler, Updater)
 
 
 def start(update: Update, context: CallbackContext) -> None:
     """Send a message when the command /start is issued."""
-    update.message.reply_text('Здравствуйте')
+    custom_keyboard = [['Новый вопрос', 'Сдаться'], ['Мой счет']]
+    reply_markup = ReplyKeyboardMarkup(custom_keyboard)
+    update.message.reply_text(
+        'Привет! Я бот для викторин!',
+        reply_markup=reply_markup
+    )
 
 
 def echo(update: Update, context: CallbackContext) -> None:
