@@ -1,8 +1,11 @@
+import functools
 import json
 import os
+import random
+from typing import Dict
 
 from environs import Env
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import (CallbackContext, CommandHandler, Filters,
                           MessageHandler, Updater)
 
@@ -17,9 +20,11 @@ def start(update: Update, context: CallbackContext) -> None:
     )
 
 
-def echo(update: Update, context: CallbackContext) -> None:
-    """Echo the user message."""
-    update.message.reply_text(update.message.text)
+def reply(update: Update, context: CallbackContext, questions: Dict) -> None:
+    """Reply to the user message."""
+    if update.message.text == 'Новый вопрос':
+        question_text = random.choice(list(questions))
+        update.message.reply_text(question_text)
 
 
 def main():
@@ -77,8 +82,12 @@ def main():
 
     dispatcher.add_handler(CommandHandler("start", start))
 
+    reply_handler = functools.partial(
+        reply,
+        questions=questions,
+    )
     dispatcher.add_handler(MessageHandler(
-        Filters.text & ~Filters.command, echo))
+        Filters.text & ~Filters.command, reply_handler))
 
     updater.start_polling()
     updater.idle()
