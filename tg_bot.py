@@ -31,14 +31,35 @@ def reply(
     if update.message.text == 'Новый вопрос':
         question_text = random.choice(list(questions))
         redis_connection.set(str(update.message.chat_id), question_text)
-        print(redis_connection.get(str(update.message.chat_id)))
         update.message.reply_text(question_text)
+    else:
+        answer = update.message.text
+        question_text = redis_connection.get(str(update.message.chat_id))
+        correct_answer = questions[question_text]
+        if '(' in correct_answer:
+            parenthesis_index = correct_answer.find('(')
+            correct_answer = correct_answer[:parenthesis_index]
+        if '.' in correct_answer:
+            dot_index = correct_answer.find('.')
+            correct_answer = correct_answer[:dot_index].strip()
+
+        correct_answer = correct_answer.strip()
+
+        if answer == correct_answer:
+            reply_text = (
+                'Правильно! Поздравляю! '
+                'Для следующего вопроса нажми "Новый вопрос"'
+            )
+        else:
+            reply_text = 'Неправильно… Попробуешь ещё раз?'
+
+        update.message.reply_text(reply_text)
 
 
 def main():
     env = Env()
     env.read_env()
-    folder_name = 'questions'
+    folder_name = env('QUESTIONS_FOLDER', 'questions')
     files_names = os.listdir(path=folder_name)
     questions = {}
     for file_name in files_names:
