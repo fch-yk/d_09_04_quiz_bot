@@ -4,6 +4,7 @@ import os
 import random
 from typing import Dict
 
+from redis import Redis
 from environs import Env
 from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import (CallbackContext, CommandHandler, Filters,
@@ -20,10 +21,17 @@ def start(update: Update, context: CallbackContext) -> None:
     )
 
 
-def reply(update: Update, context: CallbackContext, questions: Dict) -> None:
+def reply(
+    update: Update,
+    context: CallbackContext,
+    questions: Dict,
+    redis_connection: Redis
+) -> None:
     """Reply to the user message."""
     if update.message.text == 'Новый вопрос':
         question_text = random.choice(list(questions))
+        redis_connection.set(str(update.message.chat_id), question_text)
+        print(redis_connection.get(str(update.message.chat_id)))
         update.message.reply_text(question_text)
 
 
@@ -76,15 +84,21 @@ def main():
     with open('tmp.txt', 'w', encoding='UTF-8') as tmp_file:
         json.dump(questions, tmp_file, indent=4, ensure_ascii=False)
 
+    with env.prefixed('REDIS_'):
+        redis_connection = Redis(
+            host=env('HOST'),
+            port=env('PORT'),
+            password=env('PASSWORD'),
+            decode_responses=True
+        )
+
     updater = Updater(env('QUIZ_BOT_TOKEN'))
-
     dispatcher = updater.dispatcher
-
     dispatcher.add_handler(CommandHandler("start", start))
-
     reply_handler = functools.partial(
         reply,
         questions=questions,
+        redis_connection=redis_connection,
     )
     dispatcher.add_handler(MessageHandler(
         Filters.text & ~Filters.command, reply_handler))
