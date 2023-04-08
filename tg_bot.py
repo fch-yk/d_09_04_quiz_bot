@@ -2,16 +2,22 @@ import functools
 import json
 import os
 import random
+from enum import Enum
 from typing import Dict
 
-from redis import Redis
 from environs import Env
-from telegram import ReplyKeyboardMarkup, Update
-from telegram.ext import (CallbackContext, CommandHandler, Filters,
-                          MessageHandler, Updater)
+from redis import Redis
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram.ext import (CallbackContext, CommandHandler, ConversationHandler,
+                          Filters, MessageHandler, Updater)
 
 
-def start(update: Update, context: CallbackContext) -> None:
+class BotStates(Enum):
+    NEW_QUESTION_REQUEST = 0
+    SOLUTION_ATTEMPT = 1
+
+
+def start(update: Update, context: CallbackContext) -> BotStates:
     """Send a message when the command /start is issued."""
     custom_keyboard = [['Новый вопрос', 'Сдаться'], ['Мой счет']]
     reply_markup = ReplyKeyboardMarkup(custom_keyboard)
@@ -19,41 +25,58 @@ def start(update: Update, context: CallbackContext) -> None:
         'Привет! Я бот для викторин!',
         reply_markup=reply_markup
     )
+    return BotStates.NEW_QUESTION_REQUEST
 
 
-def reply(
+def handle_new_question_request(
     update: Update,
     context: CallbackContext,
     questions: Dict,
     redis_connection: Redis
-) -> None:
-    """Reply to the user message."""
-    if update.message.text == 'Новый вопрос':
-        question_text = random.choice(list(questions))
-        redis_connection.set(str(update.message.chat_id), question_text)
-        update.message.reply_text(question_text)
-    else:
-        answer = update.message.text
-        question_text = redis_connection.get(str(update.message.chat_id))
-        correct_answer = questions[question_text]
-        if '(' in correct_answer:
-            parenthesis_index = correct_answer.find('(')
-            correct_answer = correct_answer[:parenthesis_index]
-        if '.' in correct_answer:
-            dot_index = correct_answer.find('.')
-            correct_answer = correct_answer[:dot_index].strip()
+) -> BotStates:
+    question_text = random.choice(list(questions))
+    redis_connection.set(str(update.message.chat_id), question_text)
+    update.message.reply_text(question_text)
+    return BotStates.SOLUTION_ATTEMPT
 
-        correct_answer = correct_answer.strip()
 
-        if answer == correct_answer:
-            reply_text = (
-                'Правильно! Поздравляю! '
-                'Для следующего вопроса нажми "Новый вопрос"'
-            )
-        else:
-            reply_text = 'Неправильно… Попробуешь ещё раз?'
+def handle_solution_attempt(
+    update: Update,
+    context: CallbackContext,
+    questions: Dict,
+    redis_connection: Redis
+) -> BotStates:
+    answer = update.message.text
+    question_text = redis_connection.get(str(update.message.chat_id))
+    correct_answer = questions[question_text]
+    if '(' in correct_answer:
+        parenthesis_index = correct_answer.find('(')
+        correct_answer = correct_answer[:parenthesis_index]
+    if '.' in correct_answer:
+        dot_index = correct_answer.find('.')
+        correct_answer = correct_answer[:dot_index].strip()
 
+    correct_answer = correct_answer.strip()
+
+    if answer == correct_answer:
+        reply_text = (
+            'Правильно! Поздравляю! '
+            'Для следующего вопроса нажми "Новый вопрос"'
+        )
         update.message.reply_text(reply_text)
+        return BotStates.NEW_QUESTION_REQUEST
+    else:
+        update.message.reply_text('Неправильно… Попробуешь ещё раз?')
+        return BotStates.SOLUTION_ATTEMPT
+
+
+def cancel(update: Update, context: CallbackContext) -> int:
+    """Cancels and ends the conversation."""
+    update.message.reply_text(
+        'Bye!', reply_markup=ReplyKeyboardRemove()
+    )
+
+    return ConversationHandler.END
 
 
 def main():
@@ -115,15 +138,39 @@ def main():
 
     updater = Updater(env('QUIZ_BOT_TOKEN'))
     dispatcher = updater.dispatcher
-    dispatcher.add_handler(CommandHandler("start", start))
-    reply_handler = functools.partial(
-        reply,
+
+    new_question_request_handler = functools.partial(
+        handle_new_question_request,
         questions=questions,
         redis_connection=redis_connection,
     )
-    dispatcher.add_handler(MessageHandler(
-        Filters.text & ~Filters.command, reply_handler))
 
+    solution_attempt_handler = functools.partial(
+        handle_solution_attempt,
+        questions=questions,
+        redis_connection=redis_connection,
+    )
+
+    conversation_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            BotStates.NEW_QUESTION_REQUEST: [
+                MessageHandler(
+                    Filters.regex('^(Новый вопрос)$'),
+                    new_question_request_handler
+                )
+            ],
+            BotStates.SOLUTION_ATTEMPT: [
+                MessageHandler(
+                    Filters.text & ~Filters.command,
+                    solution_attempt_handler
+                ),
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+
+    dispatcher.add_handler(conversation_handler)
     updater.start_polling()
     updater.idle()
 
