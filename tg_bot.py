@@ -70,6 +70,23 @@ def handle_solution_attempt(
         return BotStates.SOLUTION_ATTEMPT
 
 
+def give_up(
+    update: Update,
+    context: CallbackContext,
+    questions: Dict,
+    redis_connection: Redis
+) -> BotStates:
+    question_text = redis_connection.get(str(update.message.chat_id))
+    correct_answer = questions[question_text]
+    update.message.reply_text(f'Правильный ответ:\n{correct_answer}')
+
+    question_text = random.choice(list(questions))
+    redis_connection.set(str(update.message.chat_id), question_text)
+    update.message.reply_text(f'Новый вопрос: \n{question_text}')
+
+    return BotStates.SOLUTION_ATTEMPT
+
+
 def cancel(update: Update, context: CallbackContext) -> int:
     """Cancels and ends the conversation."""
     update.message.reply_text(
@@ -151,19 +168,29 @@ def main():
         redis_connection=redis_connection,
     )
 
+    give_up_handler = functools.partial(
+        give_up,
+        questions=questions,
+        redis_connection=redis_connection,
+    )
+
     conversation_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
             BotStates.NEW_QUESTION_REQUEST: [
                 MessageHandler(
-                    Filters.regex('^(Новый вопрос)$'),
+                    Filters.text('Новый вопрос'),
                     new_question_request_handler
                 )
             ],
             BotStates.SOLUTION_ATTEMPT: [
                 MessageHandler(
-                    Filters.text & ~Filters.command,
+                    Filters.text & ~Filters.text('Сдаться') & ~Filters.command,
                     solution_attempt_handler
+                ),
+                MessageHandler(
+                    Filters.text('Сдаться'),
+                    give_up_handler
                 ),
             ]
         },
