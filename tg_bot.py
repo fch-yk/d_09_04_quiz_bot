@@ -1,6 +1,4 @@
 import functools
-import json
-import os
 import random
 from enum import Enum
 from typing import Dict
@@ -10,6 +8,8 @@ from redis import Redis
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import (CallbackContext, CommandHandler, ConversationHandler,
                           Filters, MessageHandler, Updater)
+
+from common import load_questions
 
 
 class BotStates(Enum):
@@ -35,7 +35,7 @@ def handle_new_question_request(
     redis_connection: Redis
 ) -> BotStates:
     question_text = random.choice(list(questions))
-    redis_connection.set(str(update.message.chat_id), question_text)
+    redis_connection.set(f'tg{update.message.chat_id}', question_text)
     update.message.reply_text(question_text)
     return BotStates.SOLUTION_ATTEMPT
 
@@ -47,14 +47,14 @@ def handle_solution_attempt(
     redis_connection: Redis
 ) -> BotStates:
     answer = update.message.text
-    question_text = redis_connection.get(str(update.message.chat_id))
+    question_text = redis_connection.get(f'tg{update.message.chat_id}')
     correct_answer = questions[question_text]
     if '(' in correct_answer:
         parenthesis_index = correct_answer.find('(')
         correct_answer = correct_answer[:parenthesis_index]
     if '.' in correct_answer:
         dot_index = correct_answer.find('.')
-        correct_answer = correct_answer[:dot_index].strip()
+        correct_answer = correct_answer[:dot_index]
 
     correct_answer = correct_answer.strip()
 
@@ -76,12 +76,12 @@ def give_up(
     questions: Dict,
     redis_connection: Redis
 ) -> BotStates:
-    question_text = redis_connection.get(str(update.message.chat_id))
+    question_text = redis_connection.get(f'tg{update.message.chat_id}')
     correct_answer = questions[question_text]
     update.message.reply_text(f'Правильный ответ:\n{correct_answer}')
 
     question_text = random.choice(list(questions))
-    redis_connection.set(str(update.message.chat_id), question_text)
+    redis_connection.set(f'tg{update.message.chat_id}', question_text)
     update.message.reply_text(f'Новый вопрос: \n{question_text}')
 
     return BotStates.SOLUTION_ATTEMPT
@@ -100,51 +100,7 @@ def main():
     env = Env()
     env.read_env()
     folder_name = env('QUESTIONS_FOLDER', 'questions')
-    files_names = os.listdir(path=folder_name)
-    questions = {}
-    for file_name in files_names:
-        file_path = os.path.join(folder_name, file_name)
-        with open(file_path, mode='r', encoding='KOI8-R') as file:
-            question_lines = False
-            question_text = ''
-            answer_lines = False
-            answer_text = ''
-            for line in file:
-                if not line.strip():
-                    if answer_lines:
-                        question_text = question_text.replace(
-                            '\n',
-                            ' '
-                        ).strip()
-                        answer_text = answer_text.replace(
-                            '\n',
-                            ' '
-                        ).strip()
-                        questions[question_text] = answer_text
-                        question_lines = False
-                        question_text = ''
-                        answer_lines = False
-                        answer_text = ''
-                    continue
-
-                if line.startswith('Вопрос'):
-                    question_lines = True
-                    continue
-
-                if line.startswith('Ответ:'):
-                    answer_lines = True
-                    question_lines = False
-                    continue
-
-                if question_lines:
-                    question_text += line
-
-                if answer_lines:
-                    answer_text += line
-
-    with open('tmp.txt', 'w', encoding='UTF-8') as tmp_file:
-        json.dump(questions, tmp_file, indent=4, ensure_ascii=False)
-
+    questions = load_questions(folder_name)
     with env.prefixed('REDIS_'):
         redis_connection = Redis(
             host=env('HOST'),
