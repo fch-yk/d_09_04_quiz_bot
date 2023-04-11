@@ -7,7 +7,7 @@ from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from vk_api.longpoll import VkEventType, VkLongPoll
 from vk_api.utils import get_random_id
 
-from common import load_questions
+from questions_loading import load_questions
 
 
 def reply(event, vk_api, questions, redis_connection):
